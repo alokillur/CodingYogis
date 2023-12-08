@@ -1,5 +1,6 @@
 import socket
 import threading
+import uuid
 
 host = '127.0.0.1'
 port = 55555
@@ -8,49 +9,63 @@ server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind((host, port))
 server.listen()
 
-clients = []
-nicknames = []
+clients = {}
+nicknames = {}
 
-def broadcast(message) :
-    for client in clients :
-        client.send(message)
+def generate_unique_id():
+    return str(uuid.uuid4())[:8]
 
-def handle(client):
+def broadcast(message, sender):
+    sender_id = clients[sender]
+    for client_socket, client_id in clients.items():
+        if client_socket != sender:
+            try:
+                client_socket.send(f"{sender_id}: {message}".encode('ascii'))
+            except:
+                remove(client_socket)
+
+
+
+def remove(client_socket):
+    if client_socket in clients:
+        unique_id = clients[client_socket]
+        nickname = nicknames[client_socket]
+        clients.pop(client_socket)
+        nicknames.pop(client_socket)
+        broadcast(f"{nickname} left the chat.".encode('ascii'), None)
+
+def handle(client_socket):
     while True:
         try:
-            message = client.recv(1024)
-            broadcast(message)
+            message = client_socket.recv(1024).decode('ascii')
+            if message == 'NICK':
+                unique_id = generate_unique_id()
+                clients[client_socket] = unique_id
+                client_socket.send(unique_id.encode('ascii'))
+            else:
+                broadcast(message, client_socket)
         except:
-            index = clients.index(client)
-            clients.remove(client)
-            client.close()
-            nickname = nicknames[index]
-            broadcast('{} left!'.format(nickname).encode('ascii'))
-            nicknames.remove(nickname)
+            remove(client_socket)
             break
-            
+
+
 def receive():
     while True:
-        client, address = server.accept()
-        print("Connected with {}".format(str(address)))
+        client_socket, address = server.accept()
+        print(f"Connected with {address}")
 
-        client.send('NICK'.encode('ascii'))
+        chosen_name = client_socket.recv(1024).decode('ascii')
 
-        nickname = client.recv(1024).decode('ascii')
+        unique_id = generate_unique_id()
+        clients[client_socket] = unique_id
+        nicknames[client_socket] = chosen_name
 
-        if nickname == 'admin' :
-            client.send('Pass'.encode('ascii'))
+        print(f"{chosen_name} ({unique_id}) joined the chat.")
+        broadcast(f"{chosen_name} joined the chat.".encode('ascii'), client_socket)
 
-        nicknames.append(nickname)
-        clients.append(client)
+        client_socket.send(unique_id.encode('ascii'))
 
-        print("Nickname is {}".format(nickname))
-        broadcast("{} joined!".format(nickname).encode('ascii'))
-        client.send('Connected to server!'.encode('ascii'))
-
-        thread = threading.Thread(target=handle, args=(client,))
-        thread.start()
+        threading.Thread(target=handle, args=(client_socket,)).start()
 
 print("Server is listening...")
 receive()
-    
