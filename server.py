@@ -37,8 +37,28 @@ def remove(client_socket):
 def handle(client_socket):
     while True:
         try:
-            message = client_socket.recv(1024).decode('ascii')
-            if message == 'NICK':
+            msg = message = client_socket.recv(1024)
+            if msg.decode('ascii').startswith('KICK') :
+                if nicknames[clients.index(client_socket)] == 'admin':
+                    name_to_kick = msg.decode('ascii')[5:]
+                    kick_user(name_to_kick)
+                else :
+                    client_socket.send('Command was refused'.encode('ascii'))
+            elif msg.decode('ascii'.startswith('BAN'):
+                if nicknames[clients.index(client_socket)] == 'admin':
+                    name_to_ban = msg.decode('ascii')[4:]
+                    kick_user(name_to_ban)
+                    with open('bans.txt','a') as f:
+                        f.write(f'{name_to_ban}\n')
+                    print(f'{name_to_ban} was Banned!')
+                else :
+                    client_socket.send('Command was refused'.encode('ascii'))
+            elif msg.decode('ascii').startswith('MUTE'):
+                if nicknames[clients.index(client_socket)] == 'admin':
+                    name_to_mute = msg.decode('ascii')[3:]
+                else:
+                     client_socket.send('Command was refused'.encode('ascii'))
+            else:
                 unique_id = generate_unique_id()
                 clients[client_socket] = unique_id
                 client_socket.send(unique_id.encode('ascii'))
@@ -51,21 +71,50 @@ def handle(client_socket):
 
 def receive():
     while True:
-        client_socket, address = server.accept()
+        client, address = server.accept()
         print(f"Connected with {address}")
 
-        chosen_name = client_socket.recv(1024).decode('ascii')
+        chosen_name = client.recv(1024).decode('ascii')
+
+        with open('bans.txt','r') as f:
+            bans = f.readlines()
+
+        if chosen_name+'\n' in bans:
+            client.send('BAN'.encode('ascii'))
+            client.close()
+            continue
+
+        if chosen_name == 'admin' :
+            client.send('PASSCODE'.encode('ascii'))
+            password = client.recv(1024).decode('ascii')
+
+            if password != 'codingyogi' :
+                client.send('REFUSE'.encode('ascii'))
+                client.close()
+                continue
 
         unique_id = generate_unique_id()
-        clients[client_socket] = unique_id
-        nicknames[client_socket] = chosen_name
+        clients[client] = unique_id
+        nicknames[client] = chosen_name
 
         print(f"{chosen_name} ({unique_id}) joined the chat.")
         broadcast(f"{chosen_name} joined the chat.".encode('ascii'), client_socket)
 
-        client_socket.send(unique_id.encode('ascii'))
+        client.send(unique_id.encode('ascii'))
 
-        threading.Thread(target=handle, args=(client_socket,)).start()
+        threading.Thread(target=handle, args=(client,)).start()
+
+def kick_user(name):
+    if name in nicknames:
+        name_index = nicknames.index(name)
+        client_to_kick = clients[name_index]
+        clients.remove(client_to_kick)
+        client_to_kick.send('You Were Kicked By Admin!')
+        client_to_kick.close()
+        nicknames.remove(name)
+        broadcast(f'{name} was kicked by an Admin!'.encode('ascii'))
+
+
 
 print("Server is listening...")
 receive()
